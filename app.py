@@ -203,15 +203,20 @@ def hotel_detail(hotel_id):
 # Add Hotel
 # enables admin to add new hotels to the database
 
-@app.route("/add_hotel", methods=["GET", "POST"])
-def add_hotel():
+@app.route("/admin/add_hotel", methods=["GET", "POST"])
+def admin_add_hotel():
+    # Ensure only admin can access
+    if "admin" not in session:
+        flash("Please log in as admin", "danger")
+        return redirect(url_for("admin_login"))
+
     if request.method == "POST":
-        name = request.form["name"]
-        location = request.form["location"]
-        price = request.form["price"]
-        rating = request.form["rating"]
-        image_url = request.form["image_url"]
-        description = request.form["description"]
+        name = request.form["name"].strip()
+        location = request.form["location"].strip()
+        price = request.form["price"].strip()
+        rating = request.form["rating"].strip()
+        image_url = request.form["image_url"].strip()
+        description = request.form["description"].strip()
         amenities = request.form.get("amenities", "").split(",")
 
         db = get_db()
@@ -221,29 +226,43 @@ def add_hotel():
         )
         hotel_id = cursor.lastrowid
 
+        # Add amenities
         for amenity in amenities:
             amenity = amenity.strip()
             if amenity:
                 db.execute("INSERT INTO amenities (hotel_id, amenity) VALUES (?, ?)", (hotel_id, amenity))
-        db.commit()
-        return redirect(url_for("listing"))
 
+        db.commit()
+        flash(f"Hotel '{name}' added successfully!", "success")
+        return redirect(url_for("admin_dashboard"))  # Redirect to admin dashboard after adding
+
+    # GET request: show admin add hotel form
     return render_template("add_hotel.html")
 
 
+
 # Remove Hotel
-@app.route("/remove_hotel", methods=["GET", "POST"])
-def remove_hotel():
+@app.route("/admin/remove_hotel", methods=["GET", "POST"])
+def admin_remove_hotel():
+    # Ensure only admin can access
+    if "admin" not in session:
+        flash("Please log in as admin", "danger")
+        return redirect(url_for("admin_login"))
+
     db = get_db()
+
     if request.method == "POST":
         hotel_id = request.form["hotel_id"]
         db.execute("DELETE FROM amenities WHERE hotel_id=?", (hotel_id,))
         db.execute("DELETE FROM hotels WHERE id=?", (hotel_id,))
         db.commit()
-        return redirect(url_for("listing"))
+        flash("Hotel removed successfully!", "success")
+        return redirect(url_for("admin_dashboard"))  # Redirect to admin dashboard
 
+    # GET request: show list of hotels to remove
     hotels = db.execute("SELECT * FROM hotels").fetchall()
     return render_template("remove_hotel.html", hotels=hotels)
+
 
 # Book Hotel with Razorpay
 # integrates Razorpay payment gateway for booking payments
@@ -403,6 +422,52 @@ def search():
 @app.route("/about")
 def about():
     return render_template("about.html")
+
+# Admin login
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    if request.method == "POST":
+        username = request.form["username"].strip()
+        password = request.form["password"].strip()
+
+        # Simple hardcoded credentials (change as needed)
+        if username == "admin" and password == "admin123":
+            session["admin"] = True
+            flash("Welcome Admin!", "success")
+            return redirect(url_for("admin_dashboard"))
+        else:
+            flash("Invalid credentials", "danger")
+            return redirect(url_for("admin_login"))
+
+    return render_template("admin_login.html")
+
+
+# Admin Dashboard
+@app.route("/admin/dashboard")
+def admin_dashboard():
+    if "admin" not in session:
+        flash("Please log in as admin", "danger")
+        return redirect(url_for("admin_login"))
+
+    db = get_db()
+    hotels = db.execute("SELECT * FROM hotels").fetchall()
+    bookings = db.execute("""
+        SELECT b.id, h.name AS hotel_name, b.guest_name, b.checkin_date, b.checkout_date, b.guests, b.total_price, COALESCE(b.status,'Pending')
+        FROM bookings b
+        JOIN hotels h ON b.hotel_id = h.id
+        ORDER BY b.checkin_date DESC
+    """).fetchall()
+    users = db.execute("SELECT * FROM users").fetchall()
+
+    return render_template("admin_dashboard.html", hotels=hotels, bookings=bookings, users=users)
+
+
+@app.route("/admin/logout")
+def admin_logout():
+    session.pop("admin", None)
+    flash("Admin logged out", "info")
+    return redirect(url_for("admin_login"))
+
 
 # Run App
 #start the Flask application
